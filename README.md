@@ -2,7 +2,7 @@
 
 Interactive web-based mini-games powered by **HTML5**, **JavaScript**, and **MediaPipe Hand Tracking**. Users can control game actions in real-time using their webcam.
 
-🚀 **[Click Here to Play Live Demo](https://sakshi987148-png.github.io/AI-Gesture-Games/)**
+🚀 **[Click Here to Play Live Demo](https://sakshi987148-png.github.io/AI-Gesture-Games/index.html)**
 
 ---
 
