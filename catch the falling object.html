@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Big Fruit AI Catcher</title>
+  <style>
+    :root {
+      --bg-color: #0c1445;
+      --glass: rgba(255, 255, 255, 0.1);
+      --accent: #f59e0b;
+	}  
+  
+    body { 
+      margin: 0; 
+      overflow: hidden; 
+      background: var(--bg-color);
+      font-family: 'Poppins', sans-serif;
+    }
+    
+    #bucket {
+      position: absolute; bottom: 30px; left: 50%;
+      transform: translateX(-50%); 
+      width: 180px; /* Bucket thoda bada kiya taaki bade fruits aa sakein */
+      height: 90px;
+      background: #f59e0b; border-radius: 10px 10px 40px 40px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 10;
+      display: flex; align-items: center; justify-content: center; font-size: 60px;
+      transition: left 0.1s ease-out;
+    }
+
+    #webcam {
+      position: absolute; 
+      opacity: 0; /* Privacy mode: ON */
+      pointer-events: none;
+    }
+
+    #game-ui { 
+      position: absolute; top: 20px; left: 20px; z-index: 20; 
+      color: white; font-size: 28px; background: rgba(255,255,255,0.1); 
+      backdrop-filter: blur(5px); padding: 10px 20px; border-radius: 15px;
+    }
+
+    /* FRUIT SIZE YAHA SE BADHAYA HAI */
+    .fruit { 
+      position: absolute; 
+      font-size: 80px; /* Fruit ka size 50px se 80px kar diya */
+      z-index: 5; 
+      line-height: 1;
+    }
+
+    .overlay {
+      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.95);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: white; z-index: 100; text-align: center;
+    }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <div id="loading-screen" class="overlay">
+    <h1>🍎 Big Fruit AI Catcher</h1>
+    <p>Model Load ho raha hai... Camera privacy mode mein hai.</p>
+  </div>
+
+  <div id="game-ui">
+    Score: <span id="score-val">0</span> | Lives: <span id="lives">❤️❤️❤️</span>
+  </div>
+
+  <div id="game-container">
+    <div id="bucket">🧺</div>
+    <video id="webcam" autoplay playsinline></video>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+  <script>
+    let score = 0;
+    let lives = 5;
+    let gameActive = false;
+    let fallingFruits = [];
+    const bucket = document.getElementById("bucket");
+    const video = document.getElementById("webcam");
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 0,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    hands.onResults((results) => {
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        if (!gameActive) {
+          gameActive = true;
+          document.getElementById("loading-screen").classList.add("hidden");
+          startGame();
+        }
+        const hand = results.multiHandLandmarks[0][0];
+        let screenX = (1 - hand.x) * window.innerWidth; 
+        bucket.style.left = screenX + "px";
+      }
+    });
+
+    const camera = new Camera(video, {
+      onFrame: async () => { await hands.send({image: video}); },
+      width: 640, height: 480
+    });
+    camera.start();
+
+    function createFruit() {
+      if(!gameActive) return;
+      const fruit = document.createElement("div");
+      fruit.className = "fruit";
+      const items = ["🍎", "🍌", "🍊", "🍇", "🍓", "🍉", "🍍"];
+      fruit.textContent = items[Math.floor(Math.random() * items.length)];
+      
+      const x = Math.random() * (window.innerWidth - 100); // Border check for big fruits
+      fruit.style.left = x + "px";
+      fruit.style.top = "-100px";
+      
+      document.body.appendChild(fruit);
+      fallingFruits.push({ element: fruit, y: -100, speed: 4 + (score * 0.1) });
+    }
+
+    function startGame() {
+      setInterval(createFruit, 1500);
+      gameLoop();
+    }
+
+    function gameLoop() {
+      if(!gameActive) return;
+
+      for (let i = fallingFruits.length - 1; i >= 0; i--) {
+        let f = fallingFruits[i];
+        f.y += f.speed;
+        f.element.style.top = f.y + "px";
+
+        let bRect = bucket.getBoundingClientRect();
+        let fRect = f.element.getBoundingClientRect();
+
+        // Collision logic adjust ki gayi hai bade items ke liye
+        if (
+          fRect.bottom >= bRect.top + 10 && 
+          fRect.right >= bRect.left && 
+          fRect.left <= bRect.right && 
+          fRect.top <= bRect.bottom
+        ) {
+          f.element.remove();
+          fallingFruits.splice(i, 1);
+          score++;
+          document.getElementById("score-val").textContent = score;
+        } else if (f.y > window.innerHeight) {
+          f.element.remove();
+          fallingFruits.splice(i, 1);
+          lives--;
+          document.getElementById("lives").textContent = "❤️".repeat(lives);
+          if(lives <= 0) location.reload();
+        }
+      }
+      requestAnimationFrame(gameLoop);
+    }
+  </script>
+</body>
+</html>

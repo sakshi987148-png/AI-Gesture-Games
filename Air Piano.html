@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Air Piano - Image Style</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <style>
+        body { margin: 0; background: #f0f0f0; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; }
+        
+        /* Video Container Style (Image jaisa) */
+        #video-container {
+            position: relative; width: 800px; height: 500px; 
+            margin-top: 20px; border-radius: 10px; overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2); background: #000;
+        }
+        #webcam { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        #output_canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
+
+        /* Piano Container (Image style) */
+        #piano-container {
+            width: 800px; background: #fff; margin-top: 30px;
+            padding: 40px 20px; border-radius: 15px; border: 1px solid #ccc;
+            position: relative; box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .keyboard { display: flex; position: relative; justify-content: center; }
+
+        /* White Keys */
+        .key.white {
+            width: 50px; height: 180px; background: white;
+            border: 1px solid #333; border-radius: 0 0 5px 5px;
+            display: flex; align-items: flex-end; justify-content: center;
+            padding-bottom: 10px; font-size: 18px; color: #555;
+            z-index: 1; transition: 0.1s;
+        }
+
+        /* Black Keys */
+        .key.black {
+            width: 34px; height: 110px; background: #333;
+            margin-left: -17px; margin-right: -17px;
+            z-index: 2; border-radius: 0 0 3px 3px;
+            display: flex; align-items: flex-end; justify-content: center;
+            color: white; font-size: 10px; padding-bottom: 5px; transition: 0.1s;
+        }
+
+        /* Active State (Visual Feedback) */
+        .key.active-key { 
+            background: #ffd700 !important; /* Gold/Yellow color like image */
+            transform: translateY(2px);
+            box-shadow: 0 5px 10px rgba(0,0,0,0.2);
+            color: #000;
+        }
+
+        .label { position: absolute; top: -30px; left: 0; font-weight: bold; color: #444; }
+    </style>
+</head>
+<body>
+
+    <div id="video-container">
+        <video id="webcam"></video>
+        <canvas id="output_canvas"></canvas>
+    </div>
+
+    <div id="piano-container">
+        <div class="label"># piano-container</div>
+        <div class="keyboard" id="keyboard">
+            <div class="key white" data-note="C4">C</div>
+            <div class="key black" data-note="C#4">C#</div>
+            <div class="key white" data-note="D4">D</div>
+            <div class="key black" data-note="D#4">D#</div>
+            <div class="key white" data-note="E4">E</div>
+            <div class="key white" data-note="F4">F</div>
+            <div class="key black" data-note="F#4">F#</div>
+            <div class="key white" data-note="G4">G</div>
+            <div class="key black" data-note="G#4">G#</div>
+            <div class="key white" data-note="A4">A</div>
+            <div class="key black" data-note="A#4">A#</div>
+            <div class="key white" data-note="B4">B</div>
+            <div class="key white" data-note="C5">C</div>
+        </div>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const allKeys = document.querySelectorAll('.key');
+
+        // Audio Setup
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const notes = {
+            'C4': 261.63, 'C#4': 277.18, 'D4': 293.66, 'D#4': 311.13, 'E4': 329.63,
+            'F4': 349.23, 'F#4': 369.99, 'G4': 392.00, 'G#4': 415.30, 'A4': 440.00,
+            'A#4': 466.16, 'B4': 493.88, 'C5': 523.25
+        };
+
+        function playSound(freq) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.8);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.8);
+        }
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.7 });
+
+        let lastPinch = false;
+
+        hands.onResults((results) => {
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            if (results.multiHandLandmarks) {
+                for (const landmarks of results.multiHandLandmarks) {
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+                    drawLandmarks(canvasCtx, landmarks, {color: '#00FF00', lineWidth: 1, radius: 2});
+
+                    const thumb = landmarks[4];
+                    const index = landmarks[8];
+                    const distance = Math.sqrt(Math.pow(thumb.x - index.x, 2) + Math.pow(thumb.y - index.y, 2));
+                    
+                    // Pinch detection
+                    const isPinching = distance < 0.05;
+                    const fingerX = index.x * window.innerWidth;
+
+                    allKeys.forEach(key => {
+                        const rect = key.getBoundingClientRect();
+                        // Agar finger key ke upar hai
+                        if (fingerX > rect.left && fingerX < rect.right) {
+                            if (isPinching && !lastPinch) {
+                                playSound(notes[key.dataset.note]);
+                                key.classList.add('active-key');
+                                setTimeout(() => key.classList.remove('active-key'), 300);
+                            }
+                        }
+                    });
+                    lastPinch = isPinching;
+                }
+            }
+        });
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+                await hands.send({image: videoElement});
+            }
+        });
+
+        // Click to start audio and camera
+        document.body.onclick = () => {
+            audioCtx.resume();
+            camera.start();
+            document.querySelector('.label').innerText = "AI Piano: Active (Hawa mein bajayein)";
+        };
+    </script>
+</body>
+</html>

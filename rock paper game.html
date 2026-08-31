@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Battle Royale: Ultra Edition</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;900&display=swap" rel="stylesheet">
+    <style>
+        :root { --cyan: #00f2ff; --pink: #ff007b; --gold: #ffd700; }
+        body { background: radial-gradient(circle, #1a1a1a 0%, #050505 100%); color: white; font-family: 'Orbitron', sans-serif; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+
+        /* Header & Scores */
+        .header { display: flex; gap: 50px; margin-bottom: 30px; }
+        .score-box { background: rgba(255,255,255,0.05); padding: 20px 40px; border-radius: 15px; border: 2px solid #333; text-align: center; position: relative; min-width: 120px; transition: 0.3s; }
+        .score-box.active-win { border-color: var(--cyan); box-shadow: 0 0 20px var(--cyan); transform: scale(1.1); }
+        .score-val { font-size: 3.5rem; font-weight: 900; display: block; }
+        .label { font-size: 0.8rem; letter-spacing: 3px; color: #888; }
+
+        /* Battle Stage */
+        .stage { display: flex; align-items: center; gap: 40px; perspective: 1000px; }
+        .v-box { width: 500px; height: 380px; background: #000; border: 4px solid var(--cyan); border-radius: 20px; position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transform: rotateY(5deg); transition: 0.5s; }
+        .a-box { width: 320px; height: 380px; background: #0a0a0a; border: 4px solid var(--pink); border-radius: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; transform: rotateY(-5deg); transition: 0.5s; }
+        
+        canvas { width: 100%; height: 100%; transform: scaleX(-1); border-radius: 16px; }
+        #webcam { display: none; }
+
+        .ai-icon { font-size: 8rem; filter: drop-shadow(0 0 15px var(--pink)); transition: 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55); }
+        .vs-circle { width: 80px; height: 80px; background: #111; border: 2px solid #444; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 1.5rem; color: #444; z-index: 10; }
+
+        /* Status & UI */
+        .status-bar { margin-top: 40px; padding: 15px 60px; background: #111; border-radius: 50px; border: 1px solid #333; color: var(--cyan); font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px; box-shadow: inset 0 0 15px rgba(0,0,0,0.8); }
+        
+        /* Progress/Confidence Bar */
+        .conf-bar { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); width: 80%; height: 4px; background: #222; border-radius: 2px; }
+        #conf-fill { height: 100%; width: 0%; background: var(--cyan); transition: 0.2s; box-shadow: 0 0 10px var(--cyan); }
+
+        #overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
+        .restart-btn { margin-top: 20px; padding: 15px 40px; background: var(--cyan); color: black; border: none; font-family: 'Orbitron'; font-weight: 900; cursor: pointer; border-radius: 5px; box-shadow: 0 0 20px var(--cyan); }
+        
+        .shake { animation: shake 0.5s; }
+        @keyframes shake { 0%, 100% { transform: translate(0,0); } 25% { transform: translate(-10px, 0); } 75% { transform: translate(10px, 0); } }
+    </style>
+</head>
+<body>
+
+    <div id="overlay">
+        <h1 id="final-msg" style="font-size: 5rem; margin: 0;">YOU WIN!</h1>
+        <p style="color: #666; letter-spacing: 5px;">TOURNAMENT COMPLETED</p>
+        <button class="restart-btn" onclick="location.reload()">NEW BATTLE</button>
+    </div>
+
+    <div class="header">
+        <div class="score-box" id="p-card">
+            <span class="label">PLAYER</span>
+            <span class="score-val" id="p-score">0</span>
+        </div>
+        <div class="score-box" id="a-card">
+            <span class="label">AI BOT</span>
+            <span class="score-val" id="a-score" style="color:var(--pink)">0</span>
+        </div>
+    </div>
+
+    <div class="stage">
+        <div class="v-box" id="p-frame">
+            <video id="webcam" playsinline></video>
+            <canvas id="output_canvas"></canvas>
+            <div class="conf-bar"><div id="conf-fill"></div></div>
+        </div>
+        
+        <div class="vs-circle">VS</div>
+
+        <div class="a-box" id="a-frame">
+            <div id="ai-mood" style="color:var(--pink); font-size: 0.7rem; margin-bottom: 20px; letter-spacing: 3px;">ANALYZING...</div>
+            <div class="ai-icon" id="ai-icon">🤖</div>
+        </div>
+    </div>
+
+    <div class="status-bar" id="status">Waking up AI...</div>
+
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const statusText = document.getElementById('status');
+        const aiIcon = document.getElementById('ai-icon');
+        const confFill = document.getElementById('conf-fill');
+
+        let pScore = 0, aScore = 0;
+        let isFighting = false;
+        let lastTriggerMove = "None";
+
+        function onResults(results) {
+            canvasCtx.save();
+            canvasCtx.fillStyle = "#050505";
+            canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                confFill.style.width = "100%";
+                
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00f2ff', lineWidth: 4});
+                drawLandmarks(canvasCtx, landmarks, {color: '#ffffff', radius: 2});
+                
+                const move = getGesture(landmarks);
+                if (move !== "None" && move !== lastTriggerMove && !isFighting) {
+                    executeBattle(move);
+                }
+            } else {
+                confFill.style.width = "0%";
+                if (!isFighting) statusText.innerText = "Show your hand to start";
+            }
+            canvasCtx.restore();
+        }
+
+        function getGesture(lm) {
+            const index = lm[8].y < lm[6].y;
+            const middle = lm[12].y < lm[10].y;
+            const ring = lm[16].y < lm[14].y;
+            const pinky = lm[20].y < lm[18].y;
+            const thumb = lm[4].x < lm[3].x; // Simple thumb check for more accuracy
+
+            if(index && middle && ring && pinky) return "PAPER";
+            if(index && middle && !ring) return "SCISSORS";
+            if(!index && !middle && !ring) return "ROCK";
+            return "None";
+        }
+
+        function executeBattle(pMove) {
+            isFighting = true;
+            lastTriggerMove = pMove;
+            
+            const moves = ["ROCK", "PAPER", "SCISSORS"];
+            const icons = {"ROCK": "✊", "PAPER": "✋", "SCISSORS": "✌️"};
+            const aiMove = moves[Math.floor(Math.random() * 3)];
+
+            // AI Animation
+            document.getElementById('a-frame').classList.add('shake');
+            aiIcon.innerText = icons[aiMove];
+            
+            setTimeout(() => {
+                document.getElementById('a-frame').classList.remove('shake');
+                let resultMsg = "";
+                
+                if (pMove === aiMove) {
+                    resultMsg = "DRAW! RE-SCANNING...";
+                    document.getElementById('ai-mood').innerText = "CALM";
+                } else if (
+                    (pMove === "ROCK" && aiMove === "SCISSORS") ||
+                    (pMove === "PAPER" && aiMove === "ROCK") ||
+                    (pMove === "SCISSORS" && aiMove === "PAPER")
+                ) {
+                    pScore++;
+                    resultMsg = `VICTORY! ${pMove} CRUSHED ${aiMove}`;
+                    triggerFlash('p-card');
+                    document.getElementById('ai-mood').innerText = "ANGRY";
+                } else {
+                    aScore++;
+                    resultMsg = `DEFEAT! AI USED ${aiMove}`;
+                    triggerFlash('a-card');
+                    document.getElementById('ai-mood').innerText = "SMUG";
+                }
+
+                statusText.innerText = resultMsg;
+                document.getElementById('p-score').innerText = pScore;
+                document.getElementById('a-score').innerText = aScore;
+
+                if (pScore === 5 || aScore === 5) {
+                    showGameOver(pScore === 5);
+                } else {
+                    setTimeout(() => {
+                        isFighting = false;
+                        aiIcon.innerText = "🤖";
+                        lastTriggerMove = "None";
+                        statusText.innerText = "READY FOR NEXT ROUND...";
+                    }, 1800);
+                }
+            }, 600);
+        }
+
+        function triggerFlash(id) {
+            const el = document.getElementById(id);
+            el.classList.add('active-win');
+            setTimeout(() => el.classList.remove('active-win'), 500);
+        }
+
+        function showGameOver(playerWon) {
+            document.getElementById('overlay').style.display = "flex";
+            const msg = document.getElementById('final-msg');
+            msg.innerText = playerWon ? "CHAMPION!" : "AI DOMINATED";
+            msg.style.color = playerWon ? "var(--cyan)" : "var(--pink)";
+        }
+
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 640, height: 480
+        });
+        camera.start().then(() => statusText.innerText = "AI ONLINE. FIGHT!");
+
+    </script>
+</body>
+</html>
