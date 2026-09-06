@@ -15,7 +15,7 @@ Interactive web-based mini-games powered by **HTML5**, **JavaScript**, and **Med
 ---
 
 ## 🛠️ Tech Stack
-- **Frontend:** HTML5, CSS3, JavaScript
+- **Frontend:** HTML5 
 - **Computer Vision:** MediaPipe / WebRTC API
 - **Hosting:** GitHub Pages
 
